@@ -40,13 +40,13 @@ cp /koolshare/webs/Main_SsLocal_Content.asp $TARGET_FOLDER/webs/
 cp /koolshare/res/icon-shadowsocks.png $TARGET_FOLDER/res/
 cp /koolshare/res/ss-menu.js $TARGET_FOLDER/res/
 cp /koolshare/res/all.png $TARGET_FOLDER/res/
-cp /koolshare/res/gfwlist.png $TARGET_FOLDER/res/
+cp /koolshare/res/gfw.png $TARGET_FOLDER/res/
 cp /koolshare/res/chn.png $TARGET_FOLDER/res/
 cp /koolshare/res/game.png $TARGET_FOLDER/res/
 cp /koolshare/res/gameV2.png $TARGET_FOLDER/res/
 cp /koolshare/res/shadowsocks.css $TARGET_FOLDER/res/
-cp /koolshare/res/gameV2.png $TARGET_FOLDER/res/
 cp /koolshare/res/ss_proc_status.htm $TARGET_FOLDER/res/
+cp -rf /koolshare/res/layer $TARGET_FOLDER/res/
 cp -r /koolshare/ss $TARGET_FOLDER/
 rm -rf $TARGET_FOLDER/ss/*.json
 
