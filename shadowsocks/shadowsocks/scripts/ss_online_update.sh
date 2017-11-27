@@ -314,10 +314,10 @@ get_oneline_rule_now(){
 	socksopen=`ps|grep "\-local"|grep 23456`
 	if [ "$ss_basic_online_links_goss" == "1" ] && [ -n "$socksopen" ];then
 		echo_date "使用SS网络下载..."
-		curl --connect-timeout 8 -s --socks5-hostname 127.0.0.1:23456 $ssr_subscribe_link > /tmp/ssr_subscribe_file.txt
+		curl --connect-timeout 8 -s -L --socks5-hostname 127.0.0.1:23456 $ssr_subscribe_link > /tmp/ssr_subscribe_file.txt
 	else
 		echo_date "使用常规网络下载..."
-		curl --connect-timeout 8 -s $ssr_subscribe_link > /tmp/ssr_subscribe_file.txt
+		curl --connect-timeout 8 -s -L $ssr_subscribe_link > /tmp/ssr_subscribe_file.txt
 	fi
 	if [ "$?" == "0" ];then
 		if [ -z "`cat /tmp/ssr_subscribe_file.txt`" ];then
@@ -424,7 +424,7 @@ start_update(){
 	do
 		z=$(($z+1))
 		#url=`dbus get ss_online_link_$z`
-		url=`dbus get ss_online_links|base64_decode|awk '{print $1}'|sed -n "$z p"`
+		url=`dbus get ss_online_links|base64_decode|awk '{print $1}'|sed -n "$z p"|sed '/^#/d'`
 		[ -z "$url" ] && continue
 		echo_date "==================================================================="
     	echo_date "                服务器订阅程序(Shell by stones & sadog)"
@@ -551,7 +551,7 @@ add() {
 	rm -rf /tmp/all_localservers >/dev/null 2>&1
 	rm -rf /tmp/all_onlineservers >/dev/null 2>&1
 	rm -rf /tmp/group_info.txt >/dev/null 2>&1
-	echo_date 添加链接为：`dbus get ss_ssr_add_link`
+	echo_date 添加链接为：`dbus get ss_base64_links`
 	ssrlinks=`dbus get ss_base64_links|sed 's/$/\n/'|sed '/^$/d'`
 	for ssrlink in $ssrlinks
 	do

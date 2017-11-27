@@ -87,6 +87,7 @@ upgrade_ss_conf(){
 }
 
 SS_VERSION_OLD=`dbus get ss_basic_version_local`
+[ -z "$SS_VERSION_OLD" ] && SS_VERSION_OLD=3.6.5
 ss_comp=`versioncmp $SS_VERSION_OLD 3.6.5`
 if [ -n "$SS_VERSION_OLD" ];then
 	if [ "$ss_comp" == "1" ];then
@@ -152,6 +153,8 @@ echo_date 创建一些二进制文件的软链接！
 echo_date 复制ss的脚本文件！
 cp -rf /tmp/shadowsocks/ss/* /koolshare/ss/
 cp -rf /tmp/shadowsocks/scripts/* /koolshare/scripts/
+cp -rf /tmp/shadowsocks/install.sh /koolshare/scripts/ss_install.sh
+cp -rf /tmp/shadowsocks/uninstall.sh /koolshare/scripts/uninstall_shadowsocks.sh
 cp -rf /tmp/shadowsocks/init.d/* /koolshare/init.d/
 
 echo_date 复制网页文件！
@@ -179,17 +182,15 @@ echo_date 设置一些默认值
 [ -z "$ss_acl_default_mode" ] && [ -n "$ss_basic_mode" ] && dbus set ss_acl_default_mode="$ss_basic_mode"
 [ -z "$ss_acl_default_mode" ] && [ -z "$ss_basic_mode" ] && dbus set ss_acl_default_mode=1
 [ -z "$ss_acl_default_port" ] && dbus set ss_acl_default_port=all
-[ -z "$ss_dns_plan" ] && dbus set ss_dns_china=1
+[ -z "$ss_dns_plan" ] && dbus set ss_dns_china=2
 
 # 离线安装时设置软件中心内储存的版本号和连接
+CUR_VERSION=`cat /koolshare/ss/version`
 dbus set softcenter_module_shadowsocks_install=1
-dbus set softcenter_module_shadowsocks_version=3.6.5
+dbus set softcenter_module_shadowsocks_version="$CUR_VERSION"
 dbus set softcenter_module_shadowsocks_title="科学上网"
 dbus set softcenter_module_shadowsocks_description="科学上网"
 dbus set softcenter_module_shadowsocks_home_url=Main_Ss_Content.asp
-
-new_version=`cat /koolshare/ss/version`
-dbus set ss_basic_version_local=$new_version
 
 sleep 2
 echo_date 一点点清理工作...

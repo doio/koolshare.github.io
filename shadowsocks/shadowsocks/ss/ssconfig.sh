@@ -21,7 +21,11 @@ IFIP=`echo $ss_basic_server|grep -E "([0-9]{1,3}[\.]){3}[0-9]{1,3}|:"`
 if [  -n "$ss_basic_rss_protocol" ];then
 	ss_basic_type=1
 else
-	[ -n "$ss_basic_koolgame_udp" ] && ss_basic_type=2 || ss_basic_type=0
+	if [ -n "$ss_basic_koolgame_udp" ];then
+		ss_basic_type=2
+	else
+		ss_basic_type=0
+	fi
 fi
 
 # creat dnsmasq.d folder
@@ -238,37 +242,54 @@ kill_process(){
 	fi
 	
 	# kill all koolgame
-	koolgame=$(ps | grep "koolgame" | grep -v "grep"|grep -v "pdu")
-	if [ ! -z "$koolgame" ];then 
+	koolgame_process=$(ps | grep "koolgame" | grep -v "grep"|grep -v "pdu")
+	if [ ! -z "$koolgame_process" ];then 
 		echo_date 关闭koolgame进程...
 		killall koolgame >/dev/null 2>&1
 	fi
 
-	pdu=`pidof pdu`
-	if [ -n "$pdu" ];then 
+	pdu_process=`pidof pdu`
+	if [ -n "$pdu_process" ];then 
 		echo_date 关闭koolgame进程...
 		kill -9 $pdu >/dev/null 2>&1
 	fi
 	
 	# kill kcp
-	client_linux_arm5=$(ps | grep "client_linux_arm5" | grep -v "grep")
-	if [ ! -z "$client_linux_arm5" ];then 
+	client_linux_arm5_process=$(ps | grep "client_linux_arm5" | grep -v "grep")
+	if [ ! -z "$client_linux_arm5_process" ];then 
 		echo_date 关闭kcp协议进程...
 		killall client_linux_arm5 >/dev/null 2>&1
 	fi
 	
 	# kill load balance
-	haproxy=$(ps | grep "haproxy" | grep -v "grep")
-	if [ ! -z "$haproxy" ];then 
+	haproxy_process=$(ps | grep "haproxy" | grep -v "grep")
+	if [ -n "$haproxy_process" ];then 
 		echo_date 关闭haproxy进程...
 		killall haproxy >/dev/null 2>&1
 	fi
-		
-	# kill simple obfs
-	obfsLocal=$(ps | grep "obfs-local" | grep -v "grep")
-    [ -n "$obfsLocal" ] && echo_date 关闭obfs-local进程... && killall obfs-local >/dev/null 2>&1
-    # incase obfs enabled in socks5 page
-    [ "$ss_local_obfs" != "0" ] && sh /koolshare/ss/socks5/socks5config.sh restart >/dev/null 2>&1
+
+	speederv1_process=$(pidof speederv1)
+	if [ -n "$speederv1_process" ];then 
+		echo_date 关闭speederv1进程...
+		killall speederv1 >/dev/null 2>&1
+	fi
+
+	speederv2_process=$(pidof speederv2)
+	if [ -n "$speederv2_process" ];then 
+		echo_date 关闭speederv2进程...
+		killall speederv2 >/dev/null 2>&1
+	fi
+
+	ud2raw_process=$(pidof udp2raw)
+	if [ -n "$ud2raw_process" ];then 
+		echo_date 关闭speederv2进程...
+		killall udp2raw >/dev/null 2>&1
+	fi
+	## kill simple obfs
+	#obfsLocal=$(ps | grep "obfs-local" | grep -v "grep")
+    #[ -n "$obfsLocal" ] && echo_date 关闭obfs-local进程... && killall obfs-local >/dev/null 2>&1
+    ## incase obfs enabled in socks5 page
+    #[ "$ss_local_obfs" != "0" ] && sh /koolshare/ss/socks5/socks5config.sh restart >/dev/null 2>&1
 }
 
 remove_conf_and_settings(){
@@ -276,6 +297,7 @@ remove_conf_and_settings(){
 	# remove conf under /jffs/configs/dnsmasq.d
 	rm -rf /jffs/configs/dnsmasq.d/gfwlist.conf
 	rm -rf /jffs/configs/dnsmasq.d/cdn.conf
+	rm -rf /jffs/configs/dnsmasq.d/zzcdn.conf
 	rm -rf /jffs/configs/dnsmasq.d/custom.conf
 	rm -rf /jffs/configs/dnsmasq.d/wblist.conf
 	rm -rf /tmp/sscdn.conf
@@ -308,7 +330,28 @@ ss_pre_start(){
 				kcp_para=`dbus get ss_basic_kcp_parameter`
 				if [ "$kcp" == "1" ];then
 					export GOGC=40
-					start-stop-daemon -S -q -b -m -p /tmp/var/kcp.pid -x /koolshare/bin/client_linux_arm5 -- -l 127.0.0.1:1091 -r $server_ip:$kcp_port $kcp_para
+					if [ "$ss_basic_kcp_method" == "1" ];then
+						if [ "$ss_kcp_compon" == "1" ];then
+							COMP="--nocomp"
+						else
+							COMP=""
+						fi
+						start-stop-daemon -S -q -b -m \
+						-p /tmp/var/kcp.pid \
+						-x /koolshare/bin/client_linux_arm5 \
+						-- -l 127.0.0.1:1091 \
+						-r $server_ip:$kcp_port \
+						--key $ss_basic_kcp_password \
+						--crypt $ss_basic_kcp_encrypt \
+						--mode $ss_basic_kcp_mode $ss_basic_kcp_extra \
+						--conn $ss_basic_kcp_conn \
+						--mtu $ss_basic_kcp_mtu \
+						--sndwnd $ss_basic_kcp_sndwnd \
+						--rcvwnd $ss_basic_kcp_rcvwnd \
+						$COMP
+					else
+						start-stop-daemon -S -q -b -m -p /tmp/var/kcp.pid -x /koolshare/bin/client_linux_arm5 -- -l 127.0.0.1:1091 -r $server_ip:$kcp_port $kcp_para
+					fi
 				fi
 			done
 		else
@@ -378,37 +421,38 @@ resolv_server_ip(){
 }
 # create shadowsocks config file...
 creat_ss_json(){
-	if [ "$ss_basic_ss_obfs_host" != "" ];then
+	# simple obfs
+	ARG_OBFS=""
+	if [ -n "$ss_basic_ss_obfs_host" ];then
 		if [ "$ss_basic_ss_obfs" == "http" ];then
-			ARG_OBFS="obfs=http;obfs-host=$ss_basic_ss_obfs_host"
+			ARG_OBFS="--plugin obfs-local --plugin-opts obfs=http;obfs-host=$ss_basic_ss_obfs_host"
 		elif [ "$ss_basic_ss_obfs" == "tls" ];then
-			ARG_OBFS="obfs=tls;obfs-host=$ss_basic_ss_obfs_host"
+			ARG_OBFS="--plugin obfs-local --plugin-opts obfs=tls;obfs-host=$ss_basic_ss_obfs_host"
 		else
 			ARG_OBFS=""
 		fi
 	else
 		if [ "$ss_basic_ss_obfs" == "http" ];then
-			ARG_OBFS="obfs=http"
+			ARG_OBFS="--plugin obfs-local --plugin-opts obfs=http"
 		elif [ "$ss_basic_ss_obfs" == "tls" ];then
-			ARG_OBFS="obfs=tls"
+			ARG_OBFS="--plugin obfs-local --plugin-opts obfs=tls"
 		else
 			ARG_OBFS=""
 		fi
 	fi
-	if [ "$ss_basic_use_kcp" == "1" ];then
-		ss_basic_server_tmp="127.0.0.1"
-		ss_basic_port_tmp=1091
-	else
-		ss_basic_server_tmp="$ss_basic_server"
-		ss_basic_port_tmp=$ss_basic_port
-	fi
+
+	#if [ "$ss_basic_udp2raw_boost_enable" == "1" ] || [ "$ss_basic_udp_boost_enable" == "1" ];then
+	#	MYTUN="\"MTU\":1200,"
+	#	MYTUN=""
+	#fi
 	
 	if [ "$ss_basic_type" == "0" ];then
 		echo_date 创建SS配置文件到$CONFIG_FILE
 		cat > $CONFIG_FILE <<-EOF
 			{
-			    "server":"$ss_basic_server_tmp",
-			    "server_port":$ss_basic_port_tmp,
+			    "server":"$ss_basic_server",
+			    "server_port":$ss_basic_port,
+			    "local_address":"0.0.0.0",
 			    "local_port":3333,
 			    "password":"$ss_basic_password",
 			    "timeout":600,
@@ -419,8 +463,9 @@ creat_ss_json(){
 		echo_date 创建SSR配置文件到$CONFIG_FILE
 		cat > $CONFIG_FILE <<-EOF
 			{
-			    "server":"$ss_basic_server_tmp",
-			    "server_port":$ss_basic_port_tmp,
+			    "server":"$ss_basic_server",
+			    "server_port":$ss_basic_port,
+			    "local_address":"0.0.0.0",
 			    "local_port":3333,
 			    "password":"$ss_basic_password",
 			    "timeout":600,
@@ -449,16 +494,24 @@ creat_ss_json(){
 			}
 		EOF
 	fi
+	
+	if [ "$ss_basic_udp2raw_boost_enable" == "1" ] || [ "$ss_basic_udp_boost_enable" == "1" ];then
+		if [ "$ss_basic_udp_upstream_mtu" == "1" ] && [ "$ss_basic_udp_node" == "$ssconf_basic_node" ];then
+			echo_date 设定UDP为 $ss_basic_udp_upstream_mtu_value
+			cat /koolshare/ss/ss.json | jq --argjson MTU $ss_basic_udp_upstream_mtu_value '. + {MTU: $MTU}' > /koolshare/ss/ss_tmp.json
+			mv /koolshare/ss/ss_tmp.json /koolshare/ss/ss.json
+		fi
+	fi
 }
 
 start_sslocal(){
 	if [ "$ss_basic_type" == "1" ];then
-		rss-local -b 0.0.0.0 -l 23456 -c $CONFIG_FILE -u -f /var/run/sslocal1.pid >/dev/null 2>&1
+		rss-local -l 23456 -c $CONFIG_FILE -u -f /var/run/sslocal1.pid >/dev/null 2>&1
 	elif  [ "$ss_basic_type" == "0" ];then
 		if [ "$ss_basic_ss_obfs" == "0" ];then
-			ss-local -b 0.0.0.0 -l 23456 -c $CONFIG_FILE -u -f /var/run/sslocal1.pid >/dev/null 2>&1
+			ss-local -l 23456 -c $CONFIG_FILE -u -f /var/run/sslocal1.pid >/dev/null 2>&1
 		else
-			ss-local -b 0.0.0.0 -l 23456 -c $CONFIG_FILE -u --plugin obfs-local --plugin-opts "$ARG_OBFS" -f /var/run/sslocal1.pid >/dev/null 2>&1
+			ss-local -l 23456 -c $CONFIG_FILE $ARG_OBFS -u -f /var/run/sslocal1.pid >/dev/null 2>&1
 		fi
 	fi
 }
@@ -481,13 +534,13 @@ start_dns(){
 	if [ "2" == "$ss_dns_foreign" ];then
 		if [ "$ss_basic_type" == "1" ];then
 			echo_date 开启ssr-tunnel...
-			rss-tunnel -b 0.0.0.0 -c /koolshare/ss/ss.json -l $DNS_PORT -L "$gs" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
+			rss-tunnel -c $CONFIG_FILE -l $DNS_PORT -L "$gs" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 		elif  [ "$ss_basic_type" == "0" ];then
 			echo_date 开启ss-tunnel...
 			if [ "$ss_basic_ss_obfs" == "0" ];then
-				ss-tunnel -b 0.0.0.0 -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l $DNS_PORT -L "$gs" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
+				ss-tunnel -c $CONFIG_FILE -l $DNS_PORT -L "$gs" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 			else
-				ss-tunnel -b 0.0.0.0 -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l $DNS_PORT -L "$gs" -u --plugin obfs-local --plugin-opts "$ARG_OBFS" -f /var/run/sstunnel.pid >/dev/null 2>&1
+				ss-tunnel -c $CONFIG_FILE -l $DNS_PORT -L "$gs" $ARG_OBFS -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 			fi
 		fi
 	fi
@@ -544,13 +597,13 @@ start_dns(){
 				[ "$ss_pdnsd_udp_server_ss_tunnel" == "4" ] && dns1="$ss_pdnsd_udp_server_ss_tunnel_user"
 				if [ "$ss_basic_type" == "1" ];then
 					echo_date 开启ssr-tunnel作为pdnsd的上游服务器.
-					rss-tunnel -b 0.0.0.0 -c /koolshare/ss/ss.json -l 1099 -L "$dns1" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
+					rss-tunnel -c $CONFIG_FILE -l 1099 -L "$dns1" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 				elif  [ "$ss_basic_type" == "0" ];then
 					echo_date 开启ss-tunnel作为pdnsd的上游服务器.
 					if [ "$ss_basic_ss_obfs" == "0" ];then
-						ss-tunnel -b 0.0.0.0 -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l $DNS_PORT -L "$dns1" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
+						ss-tunnel -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l $DNS_PORT -L "$dns1" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 					else
-						ss-tunnel -b 0.0.0.0 -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l $DNS_PORT -L "$dns1" -u --plugin obfs-local --plugin-opts "$ARG_OBFS" -f /var/run/sstunnel.pid >/dev/null 2>&1
+						ss-tunnel -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l $DNS_PORT -L "$dns1" $ARG_OBFS -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 					fi
 				fi
 			fi
@@ -633,13 +686,13 @@ start_dns(){
 			[ "$ss_chinadns_foreign_sstunnel" == "4" ] && rcfs="$ss_chinadns_foreign_sstunnel_user"
 			if [ "$ss_basic_type" == "1" ];then
 				echo_date ┣开启ssr-tunnel，作为chinaDNS上游国外dns，转发dns：$rcfs
-				rss-tunnel -b 127.0.0.1 -c /koolshare/ss/ss.json -l 1055 -L "$rcfs" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
+				rss-tunnel -b 127.0.0.1 -c $CONFIG_FILE -l 1055 -L "$rcfs" -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 			elif  [ "$ss_basic_type" == "0" ];then
 				echo_date ┣开启ss-tunnel，作为chinaDNS上游国外dns，转发dns：$rcfs
 				if [ "$ss_basic_ss_obfs" == "0" ];then
-					ss-tunnel -b 0.0.0.0 -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l 1055 -L "$rcfs" -u -f /var/run/sstunnel.pid
+					ss-tunnel -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l 1055 -L "$rcfs" -u -f /var/run/sstunnel.pid
 				else
-					ss-tunnel -b 0.0.0.0 -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l 1055 -L "$rcfs" -u --plugin obfs-local --plugin-opts "$ARG_OBFS" -f /var/run/sstunnel.pid >/dev/null 2>&1
+					ss-tunnel -s $ss_basic_server -p $ss_basic_port -m $ss_basic_method -k $ss_basic_password -l 1055 -L "$rcfs" $ARG_OBFS -u -f /var/run/sstunnel.pid >/dev/null 2>&1
 				fi
 			fi
 		elif [ "$ss_chinadns_foreign_method" == "4" ];then
@@ -651,10 +704,10 @@ start_dns(){
 	
 	# Start Pcap_DNSProxy
 	if [ "6" == "$ss_dns_foreign" ]; then
-			echo_date 开启Pcap_DNSProxy..
-			sed -i "/^Listen Port/c Listen Port = $DNS_PORT" /koolshare/ss/dns/Config.ini
-			#sed -i '/^Local Main/c Local Main = 0' /koolshare/ss/dns/Config.conf
-			sh /koolshare/ss/dns/dns.sh > /dev/null 2>&1 &
+		echo_date 开启Pcap_DNSProxy..
+		sed -i "/^Listen Port/c Listen Port = $DNS_PORT" /koolshare/ss/dns/Config.ini
+		#sed -i '/^Local Main/c Local Main = 0' /koolshare/ss/dns/Config.conf
+		sh /koolshare/ss/dns/dns.sh > /dev/null 2>&1 &
 	fi
 }
 #--------------------------------------------------------------------------------------
@@ -717,7 +770,7 @@ append_white_black_conf(){
 		echo "#for white_domain" >> /tmp/wblist.conf
 		for wan_white_domain in $wanwhitedomain
 		do 
-			echo "$wan_white_domain" | sed "s/^/server=&\/./g" | sed "s/$/\/127.0.0.1#7913/g" >> /tmp/wblist.conf
+			echo "$wan_white_domain" | sed "s/^/server=&\/./g" | sed "s/$/\/$CDN#53/g" >> /tmp/wblist.conf
 			echo "$wan_white_domain" | sed "s/^/ipset=&\/./g" | sed "s/$/\/white_list/g" >> /tmp/wblist.conf
 		done
 	fi
@@ -833,28 +886,186 @@ start_kcp(){
 	if [ "$ss_basic_use_kcp" == "1" ];then
 		echo_date 启动KCP协议进程，为了更好的体验，建议在路由器上创建虚拟内存.
 		export GOGC=40
-		start-stop-daemon -S -q -b -m \
-		-p /tmp/var/kcp.pid \
-		-x /koolshare/bin/client_linux_arm5 \
-		-- -l 127.0.0.1:1091 \
-		-r $ss_basic_server:$ss_basic_kcp_port \
-		$ss_basic_kcp_parameter
+		if [ "$ss_basic_kcp_method" == "1" ];then
+			if [ "$ss_basic_kcp_nocomp" == "1" ];then
+				COMP="--nocomp"
+			else
+				COMP=""
+			fi
+
+			[ -n "$ss_basic_kcp_server" ] && ss_basic_kcp_server="$ss_basic_server"
+			
+			start-stop-daemon -S -q -b -m \
+			-p /tmp/var/kcp.pid \
+			-x /koolshare/bin/client_linux_arm5 \
+			-- -l 127.0.0.1:1091 \
+			-r $ss_basic_kcp_server:$ss_basic_kcp_port \
+			--crypt $ss_basic_kcp_encrypt \
+			--key $ss_basic_kcp_password \
+			--sndwnd $ss_basic_kcp_sndwnd \
+			--rcvwnd $ss_basic_kcp_rcvwnd \
+			--mtu $ss_basic_kcp_mtu \
+			--conn $ss_basic_kcp_conn \
+			$COMP \
+			--mode $ss_basic_kcp_mode $ss_basic_kcp_extra
+		else
+			start-stop-daemon -S -q -b -m \
+			-p /tmp/var/kcp.pid \
+			-x /koolshare/bin/client_linux_arm5 \
+			-- -l 127.0.0.1:1091 \
+			-r $ss_basic_kcp_server:$ss_basic_kcp_port \
+			$ss_basic_kcp_parameter
+		fi
+	fi
+}
+
+start_speeder(){
+	#只有游戏模式下或者访问控制中有游戏模式主机，且udp加速节点和当前使用节点一致
+	if [ "$mangle" == "1" ] && [ "$ss_basic_udp_node" == "$ssconf_basic_node" ];then
+		#开启udpspeeder
+		if [ "$ss_basic_udp_boost_enable" == "1" ];then
+			if [ "$ss_basic_udp_software" == "1" ];then
+				echo_date 开启UDPspeederV1进程.
+				[ -n "$ss_basic_udpv1_duplicate_time" ] && duplicate_time="-t $ss_basic_udpv1_duplicate_time" || duplicate_time=""
+				[ -n "$ss_basic_udpv1_jitter" ] && jitter="-j $ss_basic_udpv1_jitter" || jitter=""
+				[ -n "$ss_basic_udpv1_report" ] && report="--report $ss_basic_udpv1_report" || report=""
+				[ -n "$ss_basic_udpv1_drop" ] && drop="--random-drop $ss_basic_udpv1_drop" || drop=""
+				[ -n "$ss_basic_udpv1_duplicate_nu" ] && duplicate="-d $ss_basic_udpv1_duplicate_nu" || duplicate=""
+				[ -n "$ss_basic_udpv1_password" ] && key1="-k $ss_basic_udpv1_password" || key1=""
+				[ "$ss_basic_udpv1_disable_filter" == "1" ] && filter="--disable-filter" || filter=""
+
+				if [ "$ss_basic_udp2raw_boost_enable" == "1" ];then
+					#串联：如果两者都开启了，则把udpspeeder的流udp量转发给udp2raw
+					speederv1 -c -l 0.0.0.0:1092 -r 127.0.0.1:1093 $key1 $ss_basic_udpv1_password \
+					$duplicate_time $jitter $report $drop $filter $duplicate $ss_basic_udpv1_duplicate_nu >/dev/null 2>&1 &
+					#如果只开启了udpspeeder，则把udpspeeder的流udp量转发给服务器
+				else
+					speederv1 -c -l 0.0.0.0:1092 -r $ss_basic_udpv1_rserver:$ss_basic_udpv1_rport $key1 \
+					$duplicate_time $jitter $report $drop $filter $duplicate $ss_basic_udpv1_duplicate_nu >/dev/null 2>&1 &
+				fi
+			elif [ "$ss_basic_udp_software" == "2" ];then
+				echo_date 开启UDPspeederV2进程.
+				[ "$ss_basic_udpv2_disableobscure" == "1" ] && disable_obscure="--disable-obscure" || disable_obscure=""
+				[ -n "$ss_basic_udpv2_timeout" ] && timeout="--timeout $ss_basic_udpv2_timeout" || timeout=""
+				[ -n "$ss_basic_udpv2_mode" ] && mode="--mode $ss_basic_udpv2_mode" || mode=""
+				[ -n "$ss_basic_udpv2_report" ] && report="--report $ss_basic_udpv2_report" || report=""
+				[ -n "$ss_basic_udpv2_mtu" ] && mtu="--mtu $ss_basic_udpv2_mtu" || mtu=""
+				[ -n "$ss_basic_udpv2_jitter" ] && jitter="--jitter $ss_basic_udpv2_jitter" || jitter=""
+				[ -n "$ss_basic_udpv2_interval" ] && interval="-interval $ss_basic_udpv2_interval" || interval=""
+				[ -n "$ss_basic_udpv2_drop" ] && drop="-random-drop $ss_basic_udpv2_drop" || drop=""
+				[ -n "$ss_basic_udpv2_password" ] && key2="-k $ss_basic_udpv2_password" || key2=""
+				[ -n "$ss_basic_udpv2_fec" ] && fec="-f $ss_basic_udpv2_fec" || fec=""
+
+				if [ "$ss_basic_udp2raw_boost_enable" == "1" ];then
+					#串联：如果两者都开启了，则把udpspeeder的流udp量转发给udp2raw
+					speederv2 -c -l 0.0.0.0:1092 -r 127.0.0.1:1093 $key2 \
+					$fec $timeout $mode $report $mtu $jitter $interval $drop $disable_obscure $ss_basic_udpv2_other --fifo /tmp/fifo.file >/dev/null 2>&1 &
+					#如果只开启了udpspeeder，则把udpspeeder的流udp量转发给服务器
+				else
+					speederv2 -c -l 0.0.0.0:1092 -r $ss_basic_udpv2_rserver:$ss_basic_udpv2_rport $key2 \
+					$fec $timeout $mode $report $mtu $jitter $interval $drop $disable_obscure $ss_basic_udpv2_other --fifo /tmp/fifo.file >/dev/null 2>&1 &
+				fi
+			fi
+		fi
+		
+		#开启udp2raw
+		if [ "$ss_basic_udp2raw_boost_enable" == "1" ];then
+			echo_date 开启UDP2raw进程.
+			[ "$ss_basic_udp2raw_a" == "1" ] && UD2RAW_EX1="-a" || UD2RAW_EX1=""
+			[ "$ss_basic_udp2raw_keeprule" == "1" ] && UD2RAW_EX2="--keep-rule" || UD2RAW_EX2=""
+			[ -n "$ss_basic_udp2raw_lowerlevel" ] && UD2RAW_LOW="--lower-level $ss_basic_udp2raw_lowerlevel" || UD2RAW_LOW=""
+			[ -n "$ss_basic_udp2raw_password" ] && key3="-k $ss_basic_udp2raw_password" || key3=""
+			
+			udp2raw -c -l 0.0.0.0:1093 -r $ss_basic_udp2raw_rserver:$ss_basic_udp2raw_rport $key3 $UD2RAW_EX1 $UD2RAW_EX2\
+			--raw-mode $ss_basic_udp2raw_rawmode --cipher-mode $ss_basic_udp2raw_ciphermode --auth-mode $ss_basic_udp2raw_authmode \
+			$UD2RAW_LOW $ss_basic_udp2raw_other >/dev/null 2>&1 &
+		fi
 	fi
 }
 
 start_ss_redir(){
-	# Start ss-redir
 	if [ "$ss_basic_type" == "1" ];then
 		echo_date 开启ssr-redir进程，用于透明代理.
-		rss-redir -b 0.0.0.0 -c $CONFIG_FILE -u -f /var/run/shadowsocks.pid >/dev/null 2>&1
+		BIN=rss-redir
+		ARG_OBFS=""
 	elif  [ "$ss_basic_type" == "0" ];then
 		echo_date 开启ss-redir进程，用于透明代理.
 		if [ "$ss_basic_ss_obfs" == "0" ];then
-			ss-redir -b 0.0.0.0 -c $CONFIG_FILE -u -f /var/run/shadowsocks.pid >/dev/null 2>&1
+			BIN=ss-redir
+			ARG_OBFS=""
 		else
-			ss-redir -b 0.0.0.0 -c $CONFIG_FILE -u --plugin obfs-local --plugin-opts "$ARG_OBFS" -f /var/run/shadowsocks.pid >/dev/null 2>&1
+			BIN=ss-redir
 		fi
 	fi
+
+	if [ "$ss_basic_udp_boost_enable" == "1" ];then
+		#只要udpspeeder开启，不管udp2raw是否开启，均设置为1092,
+		SPEED_PORT=1092
+	else
+		# 如果只开了udp2raw，则需要吧udp转发到1093
+		SPEED_PORT=1093
+	fi
+
+	if [ "$ss_basic_udp2raw_boost_enable" == "1" ] || [ "$ss_basic_udp_boost_enable" == "1" ];then
+		#udp2raw开启，udpspeeder未开启则ss-redir的udp流量应该转发到1093
+		SPEED_UDP=1
+	fi
+	
+	# Start ss-redir
+	if [ "$ss_basic_use_kcp" == "1" ];then
+		if [ "$mangle" == "1" ];then
+			if [ "$SPEED_UDP" == "1" ] && [ "$ss_basic_udp_node" == "$ssconf_basic_node" ];then
+				# tcp go kcp
+				echo_date $BIN的 tcp 走kcptun.
+				$BIN -s 127.0.0.1 -p 1091 -c $CONFIG_FILE $ARG_OBFS -f /var/run/shadowsocks.pid >/dev/null 2>&1
+				# udp go udpspeeder
+				[ "$ss_basic_udp2raw_boost_enable" == "1" ]  && [ "$ss_basic_udp_boost_enable" == "1" ] && echo_date $BIN的 udp 走udpspeeder, udpspeeder的 udp 走 udpraw
+				[ "$ss_basic_udp2raw_boost_enable" == "1" ]  && [ "$ss_basic_udp_boost_enable" != "1" ] && echo_date $BIN的 udp 走udpraw.
+				[ "$ss_basic_udp2raw_boost_enable" != "1" ]  && [ "$ss_basic_udp_boost_enable" == "1" ] && echo_date $BIN的 udp 走udpspeeder.
+				[ "$ss_basic_udp2raw_boost_enable" != "1" ]  && [ "$ss_basic_udp_boost_enable" != "1" ] && echo_date $BIN的 udp 走$BIN.
+				$BIN -s 127.0.0.1 -p $SPEED_PORT -c $CONFIG_FILE $ARG_OBFS -U -f /var/run/shadowsocks.pid >/dev/null 2>&1
+			else
+				# tcp go kcp
+				echo_date $BIN的 tcp 走kcptun.
+				$BIN -s 127.0.0.1 -p 1091 -c $CONFIG_FILE $ARG_OBFS -f /var/run/shadowsocks.pid >/dev/null 2>&1
+				# udp go ss
+				echo_date $BIN的 udp 走$BIN.
+				$BIN -c $CONFIG_FILE $ARG_OBFS -U -f /var/run/shadowsocks.pid >/dev/null 2>&1
+			fi
+		else
+			# tcp only go kcp
+			echo_date $BIN的 tcp 走kcptun.
+			echo_date $BIN的 udp 未开启.
+			$BIN -s 127.0.0.1 -p 1091 -c $CONFIG_FILE $ARG_OBFS -f /var/run/shadowsocks.pid >/dev/null 2>&1
+		fi
+	else
+		if [ "$mangle" == "1" ];then
+			if [ "$SPEED_UDP" == "1" ] && [ "$ss_basic_udp_node" == "$ssconf_basic_node" ];then
+				# tcp go ss
+				echo_date $BIN的 tcp 走$BIN.
+				$BIN -c $CONFIG_FILE $ARG_OBFS -f /var/run/shadowsocks.pid >/dev/null 2>&1
+				# udp go udpspeeder
+				[ "$ss_basic_udp2raw_boost_enable" == "1" ]  && [ "$ss_basic_udp_boost_enable" == "1" ] && echo_date $BIN的 udp 走udpspeeder, udpspeeder的 udp 走 udpraw
+				[ "$ss_basic_udp2raw_boost_enable" == "1" ]  && [ "$ss_basic_udp_boost_enable" != "1" ] && echo_date $BIN的 udp 走udpraw.
+				[ "$ss_basic_udp2raw_boost_enable" != "1" ]  && [ "$ss_basic_udp_boost_enable" == "1" ] && echo_date $BIN的 udp 走udpspeeder.
+				[ "$ss_basic_udp2raw_boost_enable" != "1" ]  && [ "$ss_basic_udp_boost_enable" != "1" ] && echo_date $BIN的 udp 走$BIN.
+				$BIN -s 127.0.0.1 -p $SPEED_PORT -c $CONFIG_FILE $ARG_OBFS -U -f /var/run/shadowsocks.pid >/dev/null 2>&1
+			else
+				# tcp udp go ss
+				echo_date $BIN的 tcp 走$BIN.
+				echo_date $BIN的 udp 走$BIN.
+				$BIN -c $CONFIG_FILE $ARG_OBFS -u -f /var/run/shadowsocks.pid >/dev/null 2>&1
+			fi
+		else
+			# tcp only go ss
+			echo_date $BIN的 tcp 走$BIN.
+			echo_date $BIN的 udp 未开启.
+			$BIN -c $CONFIG_FILE $ARG_OBFS -f /var/run/shadowsocks.pid >/dev/null 2>&1		
+		fi
+	fi
+	echo_date $BIN 启动完毕！.
+	
+	start_speeder
 }
 
 start_koolgame(){
@@ -866,7 +1077,23 @@ start_koolgame(){
 		sleep 1
 	fi
 	echo_date 开启koolgame主进程...
-	start-stop-daemon -S -q -b -m -p /tmp/var/koolgame.pid -x /koolshare/ss/koolgame/koolgame -- -c /koolshare/ss/ss.json
+	start-stop-daemon -S -q -b -m -p /tmp/var/koolgame.pid -x /koolshare/ss/koolgame/koolgame -- -c $CONFIG_FILE
+	
+	if [ "$mangle" == "1" ] && [ "$ss_basic_udp_node" == "$ssconf_basic_node" ];then
+		if [ "$ss_basic_udp_boost_enable" == "1" ];then
+			if [ "$ss_basic_udp_software" == "1" ];then
+				echo_date 检测到你启用了UDPspeederV1，但是koolgame下不支持UDPspeederV1加速，不启用！
+				dbus set ss_basic_udp_boost_enable=0
+			elif [ "$ss_basic_udp_software" == "2" ];then
+				echo_date 检测到你启用了UDPspeederV2，但是koolgame下不支持UDPspeederV1加速，不启用！
+				dbus set ss_basic_udp_boost_enable=0
+			fi
+		fi
+		if [ "$ss_basic_udp2raw_boost_enable" == "1" ];then
+			echo_date 检测到你启用了UDP2raw，但是koolgame下不支持UDP2raw，不启用！
+			dbus set ss_basic_udp2raw_boost_enable=0
+		fi
+	fi
 }
 
 write_cron_job(){
@@ -1153,6 +1380,7 @@ apply_nat_rules(){
 	iptables -t nat -N SHADOWSOCKS_EXT
 	# IP/cidr/白域名 白名单控制（不走ss）
 	iptables -t nat -A SHADOWSOCKS -p tcp -m set --match-set white_list dst -j RETURN
+	iptables -t nat -A SHADOWSOCKS_EXT -p tcp -m set --match-set white_list dst -j RETURN
 	#-----------------------FOR GLOABLE---------------------
 	# 创建gfwlist模式nat rule
 	iptables -t nat -N SHADOWSOCKS_GLO

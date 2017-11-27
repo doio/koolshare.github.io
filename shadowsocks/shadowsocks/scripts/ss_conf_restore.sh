@@ -2,6 +2,16 @@
 source /koolshare/scripts/base.sh
 alias echo_date='echo $(date +%Y年%m月%d日\ %X):'
 
+remove_first(){
+	confs2=`dbus list ss | cut -d "=" -f 1 | grep -v "version" | grep -v "ssserver_" | grep -v "ssid_" |grep -v "ss_basic_state_china" | grep -v "ss_basic_state_foreign"`
+	for conf in $confs2
+	do
+		echo_date 移除$conf
+		dbus remove $conf
+	done
+}
+
+
 upgrade_ss_conf(){
 	nodes=`dbus list ssc|grep port|cut -d "=" -f1|cut -d "_" -f4|sort -n`
 	for node in $nodes
@@ -63,20 +73,19 @@ upgrade_ss_conf(){
 	[ -n "`dbus get ssconf_basic_use_kcp_$node`" ] && dbus set ss_basic_koolgame_udp=`dbus get ssconf_basic_use_kcp_$node`
 }
 
+remove_first
 
 confs=`cat /tmp/ss_conf_backup.txt`
 format=`echo $confs|grep "{"`
 if [ -z "$format" ];then
 	echo_date 检测到ss备份文件...
-	cat /tmp/ss_conf_backup.txt | grep -E "^ss"| sed '/webtest/d' | sed '/ping/d' |sed '/ss_node_table/d' | sed '/_state_/d' |	sed 's/=/=\"/' | sed 's/$/\"/g'|sed 's/^/dbus set /' | sed '1 i\\n' | sed '1 isource /koolshare/scripts/base.sh' | sed '1 i#!/bin/sh' > /tmp/ss_conf_backup_tmp.sh
+	cat /tmp/ss_conf_backup.txt | grep -E "^ss"| sed '/webtest/d' | sed '/ssid_/d' | sed '/ssserver_/d' | sed '/ping/d' |sed '/ss_node_table/d' | sed '/_state_/d' |	sed 's/=/=\"/' | sed 's/$/\"/g'|sed 's/^/dbus set /' | sed '1 i\\n' | sed '1 isource /koolshare/scripts/base.sh' | sed '1 i#!/bin/sh' > /tmp/ss_conf_backup_tmp.sh
 	echo_date 开始恢复配置...
 	chmod +x /tmp/ss_conf_backup_tmp.sh
 	sh /tmp/ss_conf_backup_tmp.sh
-	sleep 1
+	sleep 2
 	backup_version=`dbus get ss_basic_version_local`
-	[  -z "$backup_version" ] && {
-		backup_version="3.1.6"
-	}
+	[  -z "$backup_version" ] && backup_version="3.6.5"
 	comp=`versioncmp $backup_version 3.6.5`
 	if [ "$comp" == "1" ];then
 		echo_date 检测到备份文件来自低于3.6.5版本，开始对部分数据进行升级，以适应新版本！
@@ -229,7 +238,9 @@ else
 		echo_date 导入配置成功！
 	fi
 fi
-	echo_date 一点点清理工作...
-	sleep 2
-	rm -rf /tmp/ss_conf_*
-	echo_date 完成！
+
+
+echo_date 一点点清理工作...
+sleep 2
+rm -rf /tmp/ss_conf_*
+echo_date 完成！
