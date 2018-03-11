@@ -1,6 +1,6 @@
 #!/bin/sh
 source /koolshare/scripts/base.sh
-alias echo_date='echo $(date +%Y年%m月%d日\ %X):'
+alias echo_date='echo 【$(TZ=UTC-8 date -R +%Y年%m月%d日\ %X)】:'
 
 remove_first(){
 	confs2=`dbus list ss | cut -d "=" -f 1 | grep -v "version" | grep -v "ssserver_" | grep -v "ssid_" |grep -v "ss_basic_state_china" | grep -v "ss_basic_state_foreign"`
@@ -239,8 +239,7 @@ else
 	fi
 fi
 
-
 echo_date 一点点清理工作...
-sleep 2
+sleep 1
 rm -rf /tmp/ss_conf_*
 echo_date 完成！

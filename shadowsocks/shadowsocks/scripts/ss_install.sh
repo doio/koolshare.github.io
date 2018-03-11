@@ -1,7 +1,7 @@
 #! /bin/sh
 
 eval `dbus export ss`
-alias echo_date='echo $(date +%Y年%m月%d日\ %X):'
+alias echo_date='echo 【$(TZ=UTC-8 date -R +%Y年%m月%d日\ %X)】:'
 mkdir -p /koolshare/ss
 
 # 判断路由架构和平台
@@ -104,7 +104,7 @@ fi
 # 先关闭ss
 if [ "$ss_basic_enable" == "1" ];then
 	echo_date 先关闭ss，保证文件更新成功!
-	[ -f "/koolshare/ss/stop.sh" ] && sh /koolshare/ss/stop.sh stop_all || sh /koolshare/ss/ssconfig.sh stop
+	sh /koolshare/ss/ssconfig.sh stop
 fi
 
 #升级前先删除无关文件
@@ -112,17 +112,24 @@ echo_date 清理旧文件
 rm -rf /koolshare/ss/*
 rm -rf /koolshare/scripts/ss_*
 rm -rf /koolshare/webs/Main_Ss*
-rm -rf /koolshare/bin/ss-*
-rm -rf /koolshare/bin/rss-*
-rm -rf /koolshare/bin/obfs*
+rm -rf /koolshare/bin/ss-redir
+rm -rf /koolshare/bin/ss-tunnel
+rm -rf /koolshare/bin/ss-local
+rm -rf /koolshare/bin/rss-redir
+rm -rf /koolshare/bin/rss-tunnel
+rm -rf /koolshare/bin/rss-local
+rm -rf /koolshare/bin/obfs-local
+rm -rf /koolshare/bin/koolgame
+rm -rf /koolshare/bin/pdu
 rm -rf /koolshare/bin/haproxy
-rm -rf /koolshare/bin/redsocks2
 rm -rf /koolshare/bin/pdnsd
 rm -rf /koolshare/bin/Pcap_DNSProxy
 rm -rf /koolshare/bin/dnscrypt-proxy
 rm -rf /koolshare/bin/dns2socks
+rm -rf /koolshare/bin/cdns
 rm -rf /koolshare/bin/client_linux_arm5
 rm -rf /koolshare/bin/chinadns
+rm -rf /koolshare/bin/chinadns1
 rm -rf /koolshare/bin/resolveip
 rm -rf /koolshare/res/layer
 rm -rf /koolshare/res/shadowsocks.css
@@ -135,6 +142,7 @@ rm -rf /koolshare/res/game.png
 rm -rf /koolshare/res/shadowsocks.css
 rm -rf /koolshare/res/gameV2.png
 rm -rf /koolshare/res/ss_proc_status.htm
+find /koolshare/init.d/ -name "*socks5.sh" | xargs rm -rf
 
 echo_date 开始复制文件！
 cd /tmp
@@ -143,19 +151,11 @@ echo_date 复制相关二进制文件！
 cp -rf /tmp/shadowsocks/bin/* /koolshare/bin/
 chmod 755 /koolshare/bin/*
 
-echo_date 创建一些二进制文件的软链接！
-[ ! -L "/koolshare/bin/rss-tunnel" ] && ln -sf /koolshare/bin/rss-local /koolshare/bin/rss-tunnel
-[ ! -L "/koolshare/bin/base64" ] && ln -sf /koolshare/bin/koolbox /koolshare/bin/base64
-[ ! -L "/koolshare/bin/shuf" ] && ln -sf /koolshare/bin/koolbox /koolshare/bin/shuf
-[ ! -L "/koolshare/bin/netstat" ] && ln -sf /koolshare/bin/koolbox /koolshare/bin/netstat
-[ ! -L "/koolshare/bin/base64_decode" ] && ln -s /koolshare/bin/base64_encode /koolshare/bin/base64_decode
-
 echo_date 复制ss的脚本文件！
 cp -rf /tmp/shadowsocks/ss/* /koolshare/ss/
 cp -rf /tmp/shadowsocks/scripts/* /koolshare/scripts/
 cp -rf /tmp/shadowsocks/install.sh /koolshare/scripts/ss_install.sh
 cp -rf /tmp/shadowsocks/uninstall.sh /koolshare/scripts/uninstall_shadowsocks.sh
-cp -rf /tmp/shadowsocks/init.d/* /koolshare/init.d/
 
 echo_date 复制网页文件！
 cp -rf /tmp/shadowsocks/webs/* /koolshare/webs/
@@ -165,14 +165,19 @@ echo_date 移除安装包！
 rm -rf /tmp/shadowsocks* >/dev/null 2>&1
 
 echo_date 为新安装文件赋予执行权限...
-chmod 755 /koolshare/ss/koolgame/*
 chmod 755 /koolshare/ss/cru/*
 chmod 755 /koolshare/ss/rules/*
-chmod 755 /koolshare/ss/dns/*
-chmod 755 /koolshare/ss/socks5/*
 chmod 755 /koolshare/ss/*
 chmod 755 /koolshare/scripts/ss*
 chmod 755 /koolshare/bin/*
+
+echo_date 创建一些二进制文件的软链接！
+[ ! -L "/koolshare/bin/rss-tunnel" ] && ln -sf /koolshare/bin/rss-local /koolshare/bin/rss-tunnel
+[ ! -L "/koolshare/bin/base64" ] && ln -sf /koolshare/bin/koolbox /koolshare/bin/base64
+[ ! -L "/koolshare/bin/shuf" ] && ln -sf /koolshare/bin/koolbox /koolshare/bin/shuf
+[ ! -L "/koolshare/bin/netstat" ] && ln -sf /koolshare/bin/koolbox /koolshare/bin/netstat
+[ ! -L "/koolshare/bin/base64_decode" ] && ln -s /koolshare/bin/base64_encode /koolshare/bin/base64_decode
+[ ! -L "/koolshare/init.d/S99socks5.sh" ] && ln -sf /koolshare/scripts/ss_socks5.sh /koolshare/init.d/S99socks5.sh
 
 # 设置一些默认值
 echo_date 设置一些默认值
@@ -182,7 +187,6 @@ echo_date 设置一些默认值
 [ -z "$ss_acl_default_mode" ] && [ -n "$ss_basic_mode" ] && dbus set ss_acl_default_mode="$ss_basic_mode"
 [ -z "$ss_acl_default_mode" ] && [ -z "$ss_basic_mode" ] && dbus set ss_acl_default_mode=1
 [ -z "$ss_acl_default_port" ] && dbus set ss_acl_default_port=all
-[ -z "$ss_dns_plan" ] && dbus set ss_dns_china=2
 
 # 离线安装时设置软件中心内储存的版本号和连接
 CUR_VERSION=`cat /koolshare/ss/version`
